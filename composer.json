@@ -1,0 +1,6 @@
+{
+    "require": {
+        "rats/zkteco": "^002.0",
+        "phpoffice/phpspreadsheet": "^5.9"
+    }
+}
