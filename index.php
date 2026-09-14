@@ -70,8 +70,6 @@ foreach ($data_harian as $row) {
     }
 }
 
-$ada_data_grafik = array_sum($grafik_hadir) + array_sum($grafik_telat) + array_sum($grafik_alpha) > 0;
-
 $tahun_awal_data = (int) $pdo->query('SELECT YEAR(MIN(tanggal)) FROM attendance_daily')->fetchColumn();
 if (!$tahun_awal_data) {
     $tahun_awal_data = (int) date('Y');
@@ -183,21 +181,14 @@ include __DIR__ . '/includes/header.php';
         </div>
       </div>
 
-      <?php if (!$ada_data_grafik): ?>
-        <div class="empty-state empty-state--sm">
-          <div class="empty-state__media"><?= ic('solar:checklist-minimalistic-bold-duotone') ?></div>
-          <h3 class="empty-state__title">Belum ada data absensi bulan ini</h3>
-          <p class="empty-state__text">Data akan muncul otomatis setelah karyawan absen di mesin, atau bisa ditambahkan manual lewat menu Log Absensi.</p>
+      <div class="card__body" style="padding: 16px 20px;">
+        <div style="position: relative; height: 340px;">
+          <canvas id="grafikAbsensiBulanan"></canvas>
         </div>
-      <?php else: ?>
-        <div class="card__body" style="padding: 16px 20px;">
-          <div style="position: relative; height: 340px;">
-            <canvas id="grafikAbsensiBulanan"></canvas>
-          </div>
-        </div>
+      </div>
 
-        <script src="assets/vendor/chartjs/chart.umd.js"></script>
-        <script>
+      <script src="assets/vendor/chartjs/chart.umd.js"></script>
+      <script>
           (function () {
             const ctx = document.getElementById('grafikAbsensiBulanan');
             if (!ctx) return;
@@ -250,7 +241,6 @@ include __DIR__ . '/includes/header.php';
             });
           })();
         </script>
-      <?php endif; ?>
     </div>
   </section>
 </div>
