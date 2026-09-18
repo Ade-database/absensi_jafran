@@ -177,7 +177,7 @@ include __DIR__ . '/includes/header.php';
       <div class="card__header">
         <span class="card__title">Grafik Absensi <?= e($nama_bulan[$bulan_dipilih] . ' ' . $tahun_dipilih) ?></span>
         <div class="card__action">
-          <a href="absensi.php" class="button button--sm button--ghost button--primary">Lihat semua</a>
+          <a href="laporan.php?bulan=<?= (int) $bulan_dipilih ?>&tahun=<?= (int) $tahun_dipilih ?>" class="button button--sm button--ghost button--primary">Lihat semua</a>
         </div>
       </div>
 
