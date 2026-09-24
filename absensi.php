@@ -36,19 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         } else {
 
-            $emp = $pdo->prepare(
-                'SELECT
-                    e.*,
-                    s.jam_masuk AS shift_masuk,
-                    s.toleransi_menit,
-                    s.is_lembur
-                 FROM employees e
-                 LEFT JOIN shifts s ON s.id = e.shift_id
-                 WHERE e.id = ?'
-            );
-
+            $emp = $pdo->prepare('SELECT * FROM employees WHERE id = ?');
             $emp->execute([$employee_id]);
-
             $emp = $emp->fetch();
 
             if (!$emp) {
@@ -57,23 +46,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             } else {
 
-                if ($emp['shift_masuk']) {
+                // Shift tidak lagi jadi properti tetap milik karyawan.
+                // Sistem mendeteksi otomatis shift mana yang paling cocok
+                // dengan jam check-in, dari daftar shift yang berlaku
+                // di hari itu (sesuai hari_kerja masing-masing shift).
+                $semua_shift = $pdo->query('SELECT * FROM shifts')->fetchAll();
+
+                $shift_hari_ini = array_values(array_filter(
+                    $semua_shift,
+                    fn($sh) => shift_berlaku_hari($sh['hari_kerja'], $tanggal)
+                ));
+
+                $shift_cocok = null;
+                $shift_ambigu = false;
+
+                if ($jam_masuk && !empty($shift_hari_ini)) {
+                    [$shift_cocok, $shift_ambigu] = deteksi_shift($jam_masuk, $shift_hari_ini);
+                }
+
+                if ($shift_cocok) {
 
                     [$status, $menit_telat] = hitung_status(
                         $jam_masuk,
-                        $emp['shift_masuk'],
-                        (int) $emp['toleransi_menit']
+                        $shift_cocok['jam_masuk'],
+                        (int) $shift_cocok['toleransi_menit']
                     );
 
-                    if ($status === 'hadir' && !empty($emp['is_lembur'])) {
-                        $status = 'lembur';
-                    }
+                    $jam_lembur = hitung_lembur($jam_pulang, $shift_cocok['jam_masuk'], $shift_cocok['jam_pulang']);
 
                 } else {
 
                     $status = $jam_masuk ? 'hadir' : 'alpha';
                     $menit_telat = 0;
+                    $jam_lembur = 0;
                 }
+
+                // perlu_tinjau = true kalau:
+                // - sistem ragu shift mana yang cocok (gray zone), atau
+                // - tidak ada shift yang cocok sama sekali padahal
+                //   karyawan check-in, atau
+                // - statusnya bukan "Hadir" (Telat/Alpha) -> admin perlu
+                //   tahu supaya bisa langsung ditindaklanjuti.
+                $perlu_tinjau = (
+                    $shift_ambigu ||
+                    (!$shift_cocok && $jam_masuk) ||
+                    $status !== 'hadir'
+                ) ? 1 : 0;
 
                 try {
 
@@ -86,11 +104,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             jam_pulang_aktual,
                             status,
                             menit_telat,
+                            jam_lembur,
                             catatan,
                             perlu_tinjau,
                             sumber
                         )
-                        VALUES (?,?,?,?,?,?,?,0,'manual')
+                        VALUES (?,?,?,?,?,?,?,?,?,'manual')
 
                         ON DUPLICATE KEY UPDATE
 
@@ -98,8 +117,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             jam_pulang_aktual = VALUES(jam_pulang_aktual),
                             status = VALUES(status),
                             menit_telat = VALUES(menit_telat),
+                            jam_lembur = VALUES(jam_lembur),
                             catatan = VALUES(catatan),
-                            perlu_tinjau = 0,
+                            perlu_tinjau = VALUES(perlu_tinjau),
                             sumber = 'manual'"
                     )->execute([
                         $employee_id,
@@ -108,7 +128,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $jam_pulang,
                         $status,
                         $menit_telat,
-                        $catatan
+                        $jam_lembur,
+                        $catatan,
+                        $perlu_tinjau
                     ]);
 
                     flash('success', 'Absensi berhasil disimpan.');
@@ -135,8 +157,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 jam_pulang_aktual = ?,
                                 status = ?,
                                 menit_telat = ?,
+                                jam_lembur = ?,
                                 catatan = ?,
-                                perlu_tinjau = 0,
+                                perlu_tinjau = ?,
                                 sumber = 'manual'
                              WHERE id = ?"
                         )->execute([
@@ -144,7 +167,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $jam_pulang,
                             $status,
                             $menit_telat,
+                            $jam_lembur,
                             $catatan,
+                            $perlu_tinjau,
                             $ada['id']
                         ]);
 
@@ -159,11 +184,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 jam_pulang_aktual,
                                 status,
                                 menit_telat,
+                                jam_lembur,
                                 catatan,
                                 perlu_tinjau,
                                 sumber
                             )
-                            VALUES (?,?,?,?,?,?,?,0,'manual')"
+                            VALUES (?,?,?,?,?,?,?,?,?,'manual')"
                         )->execute([
                             $employee_id,
                             $tanggal,
@@ -171,7 +197,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $jam_pulang,
                             $status,
                             $menit_telat,
-                            $catatan
+                            $jam_lembur,
+                            $catatan,
+                            $perlu_tinjau
                         ]);
                     }
 
@@ -381,7 +409,7 @@ include __DIR__ . '/includes/header.php';
 <header class="page__header">
   <div class="page__headline">
     <h1 class="page__title">Log Absensi</h1>
-    <p class="page__description">Riwayat kehadiran karyawan. Data terisi otomatis dari mesin setelah integrasi aktif; sementara bisa ditambah manual.</p>
+    <p class="page__description">Riwayat kehadiran karyawan. Shift dideteksi otomatis dari jam check-in setiap hari; data terisi otomatis dari mesin setelah integrasi aktif, sementara bisa ditambah manual.</p>
   </div>
   <div class="page__action" style="display:flex; gap:8px; flex-wrap:wrap;">
     <a href="laporan.php?<?= e($qs_laporan) ?>" class="button button--ghost button--neutral">
@@ -544,6 +572,9 @@ include __DIR__ . '/includes/header.php';
                       <?php if ($l['status'] === 'telat'): ?>
                         <span class="text-xs text-muted-foreground">(<?= (int) $l['menit_telat'] ?> menit)</span>
                       <?php endif; ?>
+                      <?php if (!empty($l['jam_lembur'])): ?>
+                        <span class="badge badge--soft badge--primary">Lembur <?= rtrim(rtrim(number_format((float) $l['jam_lembur'], 2), '0'), '.') ?> jam</span>
+                      <?php endif; ?>
                       <?php if (!empty($l['perlu_tinjau'])): ?>
                         <span class="badge badge--soft badge--warning">Perlu Ditinjau</span>
                       <?php endif; ?>
@@ -673,7 +704,7 @@ include __DIR__ . '/includes/header.php';
           <div class="alert alert--neutral">
             <?= ic('solar:danger-triangle-bold-duotone') ?>
             <span class="text-sm">
-              Status (Hadir/Telat/Tidak Hadir) dihitung otomatis berdasarkan shift karyawan yang bersangkutan. Kosongkan jam masuk kalau karyawan tidak hadir.
+              Shift, status (Hadir/Telat/Tidak Hadir), dan lembur dihitung otomatis dari jam masuk & jam pulang yang diisi. Kosongkan jam masuk kalau karyawan tidak hadir.
             </span>
           </div>
 
