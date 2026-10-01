@@ -29,7 +29,18 @@ $rekap = ['hadir' => 0, 'telat' => 0, 'alpha' => 0, 'lembur' => 0, 'izin' => 0];
 foreach ($stmt->fetchAll() as $row) {
     $rekap[$row['status']] = (int) $row['jumlah'];
 }
-$tidak_hadir = $rekap['alpha'];
+
+// Total jam lembur seluruh karyawan pada bulan yang dipilih.
+// Sama dengan penjumlahan kolom "Lembur (jam)" di halaman Laporan.
+$stmt = $pdo->prepare('SELECT COALESCE(SUM(jam_lembur), 0) FROM attendance_daily WHERE tanggal BETWEEN ? AND ?');
+$stmt->execute([$awal_bulan, $akhir_bulan]);
+$total_jam_lembur = (float) $stmt->fetchColumn();
+
+// Format tampilan: 12,5 / 8 / 0
+$jam_lembur_tampil = rtrim(rtrim(number_format($total_jam_lembur, 2, ',', '.'), '0'), ',');
+if ($jam_lembur_tampil === '') {
+    $jam_lembur_tampil = '0';
+}
 
 // Data harian untuk grafik tren absensi selama bulan yang dipilih
 $stmt = $pdo->prepare(
@@ -47,13 +58,11 @@ $jumlah_hari_bulan = (int) date('t', strtotime($awal_bulan));
 $grafik_label = [];
 $grafik_hadir = [];
 $grafik_telat = [];
-$grafik_alpha = [];
 
 for ($d = 1; $d <= $jumlah_hari_bulan; $d++) {
     $grafik_label[$d] = (string) $d;
     $grafik_hadir[$d] = 0;
     $grafik_telat[$d] = 0;
-    $grafik_alpha[$d] = 0;
 }
 
 foreach ($data_harian as $row) {
@@ -65,8 +74,6 @@ foreach ($data_harian as $row) {
         $grafik_hadir[$hari] = (int) $row['jumlah'];
     } elseif ($row['status'] === 'telat') {
         $grafik_telat[$hari] = (int) $row['jumlah'];
-    } elseif ($row['status'] === 'alpha') {
-        $grafik_alpha[$hari] = (int) $row['jumlah'];
     }
 }
 
@@ -161,10 +168,10 @@ include __DIR__ . '/includes/header.php';
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <div class="card card--stat">
           <div class="card__body">
-            <span class="icon-box icon-box--danger icon-box--lg"><?= ic('solar:close-circle-bold') ?></span>
+            <span class="icon-box icon-box--primary icon-box--lg"><?= ic('solar:clock-circle-bold-duotone') ?></span>
             <div class="stat">
-              <div class="stat__value"><?= (int) $tidak_hadir ?></div>
-              <div class="stat__label text-eyebrow">Tidak Hadir Bulan Ini</div>
+              <div class="stat__value"><?= e($jam_lembur_tampil) ?></div>
+              <div class="stat__label text-eyebrow">Jam Lembur Bulan Ini</div>
             </div>
           </div>
         </div>
@@ -208,12 +215,6 @@ include __DIR__ . '/includes/header.php';
                     label: 'Telat',
                     data: <?= json_encode(array_values($grafik_telat)) ?>,
                     backgroundColor: '#d97706',
-                    borderRadius: 3,
-                  },
-                  {
-                    label: 'Tidak Hadir',
-                    data: <?= json_encode(array_values($grafik_alpha)) ?>,
-                    backgroundColor: '#dc2626',
                     borderRadius: 3,
                   },
                 ],

@@ -49,6 +49,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="assets/css/style.css" />
+  <style>
+    /* Background panel kanan */
+    .auth .auth__aside {
+      background-image:
+        linear-gradient(to top, rgba(3, 7, 18, 0.85) 0%, rgba(3, 7, 18, 0.3) 50%, rgba(3, 7, 18, 0.5) 100%),
+        url('assets/img/background_absensi.jpg') !important;
+      background-size: cover !important;
+      background-position: center !important;
+      background-repeat: no-repeat !important;
+    }
+
+    /* Logo + nama di pojok kiri atas panel */
+    .auth .auth__brand {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center !important;
+      gap: 0.75rem !important;
+      width: auto !important;
+      max-width: 100% !important;
+    }
+    .auth .auth__logo {
+      display: block !important;
+      width: 68px !important;
+      height: 68px !important;
+      min-width: 68px !important;
+      max-width: 68px !important;
+      padding: 6px;
+      background: #ffffff;
+      border-radius: 12px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    .auth .auth__brand-text {
+      display: block !important;
+      position: static !important;
+      white-space: nowrap;
+    }
+  </style>
 </head>
 <body>
   <main class="auth">
@@ -96,9 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <aside class="auth__aside">
       <a href="#" class="auth__brand">
-        <span class="auth__brand-mark">
-          <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.5l3.4 7.1 7.1 3.4-7.1 3.4-3.4 7.1-3.4-7.1L1.5 12l7.1-3.4z" opacity=".45"/><path d="M12 1.5l3.4 7.1L12 12 8.6 8.6z"/></svg>
-        </span>
+        <img src="assets/img/logo_jafran.png" alt="Logo PT Jafran Indonesia" class="auth__logo" />
         <span class="auth__brand-text">
           <span class="auth__brand-name">Absensi Jafran</span>
         </span>
@@ -118,12 +154,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     document.addEventListener('click', function (event) {
       var toggle = event.target.closest('[data-password-toggle]');
       if (!toggle) return;
-      var input = document.getElementById(toggle.getAttribute('aria-controls'));
-      if (!input) return;
-      var reveal = input.type === 'password';
-      input.type = reveal ? 'text' : 'password';
-      toggle.setAttribute('aria-pressed', String(reveal));
-    });
-  </script>
-</body>
-</html>
+      var input = document.getElementById(toggle.getAttribute(

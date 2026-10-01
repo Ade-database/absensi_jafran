@@ -33,11 +33,14 @@ if ($departemen_id !== '' && !ctype_digit((string) $departemen_id)) {
 $awal = sprintf('%04d-%02d-01', $tahun, $bulan);
 $akhir = date('Y-m-t', strtotime($awal));
 
+// Kolom lembur = TOTAL JAM lembur (SUM jam_lembur), bukan jumlah baris
+// berstatus "lembur", karena lembur disimpan sebagai jam di kolom
+// attendance_daily.jam_lembur.
 $sql = "SELECT e.id, e.nik, e.nama, d.nama_departemen,
                SUM(CASE WHEN a.status = 'hadir' THEN 1 ELSE 0 END) AS jumlah_hadir,
                SUM(CASE WHEN a.status = 'telat' THEN 1 ELSE 0 END) AS jumlah_telat,
-               SUM(CASE WHEN a.status = 'alpha' THEN 1 ELSE 0 END) AS jumlah_alpha,
-               SUM(CASE WHEN a.status = 'lembur' THEN 1 ELSE 0 END) AS jumlah_lembur
+               COALESCE(SUM(a.jam_lembur), 0) AS total_jam_lembur,
+               COUNT(DISTINCT a.tanggal) AS hari_tercatat
         FROM employees e
         LEFT JOIN departments d ON d.id = e.departemen_id
         LEFT JOIN attendance_daily a ON a.employee_id = e.id AND a.tanggal BETWEEN ? AND ?
@@ -60,14 +63,44 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rekap = $stmt->fetchAll();
 
+// Total hari kalender dalam periode yang dipilih (termasuk Minggu &
+// tanggal merah, karena sebagian karyawan tetap masuk di hari tersebut).
+// "Tidak Hadir" dihitung dari selisih total hari periode dengan jumlah
+// hari yang punya catatan absensi apa pun (hadir/telat/lembur).
+$totalHariPeriode = (int) date('t', strtotime($awal));
+
+foreach ($rekap as &$r) {
+    $r['jumlah_alpha'] = max(0, $totalHariPeriode - (int) $r['hari_tercatat']);
+}
+unset($r);
+
+/**
+ * Format total jam lembur untuk tampilan: 12,5 / 8 / 0
+ */
+function format_jam_lembur($jam): string
+{
+    $teks = number_format((float) $jam, 2, ',', '.');
+    $teks = rtrim(rtrim($teks, '0'), ',');
+
+    return $teks === '' ? '0' : $teks;
+}
+
 if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="laporan-absensi-' . $tahun . '-' . str_pad($bulan, 2, '0', STR_PAD_LEFT) . '.csv"');
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF"); // BOM UTF-8, supaya Excel Windows menampilkan karakter non-ASCII (mis. nama dengan huruf beraksen) dengan benar
-    fputcsv($out, ['ID', 'Nama', 'Departemen', 'Hadir', 'Telat', 'Tidak Hadir', 'Lembur']);
+    fputcsv($out, ['ID', 'Nama', 'Departemen', 'Hadir', 'Telat', 'Tidak Hadir', 'Lembur (jam)']);
     foreach ($rekap as $r) {
-        fputcsv($out, [$r['nik'], $r['nama'], $r['nama_departemen'] ?? '-', $r['jumlah_hadir'], $r['jumlah_telat'], $r['jumlah_alpha'], $r['jumlah_lembur']]);
+        fputcsv($out, [
+            $r['nik'],
+            $r['nama'],
+            $r['nama_departemen'] ?? '-',
+            $r['jumlah_hadir'],
+            $r['jumlah_telat'],
+            $r['jumlah_alpha'],
+            number_format((float) $r['total_jam_lembur'], 2, '.', ''),
+        ]);
     }
     fclose($out);
     exit;
@@ -172,7 +205,7 @@ include __DIR__ . '/includes/header.php';
                 <th class="text-end">Hadir</th>
                 <th class="text-end">Telat</th>
                 <th class="text-end">Tidak Hadir</th>
-                <th class="text-end">Lembur</th>
+                <th class="text-end">Lembur (jam)</th>
               </tr>
             </thead>
             <tbody>
@@ -184,7 +217,7 @@ include __DIR__ . '/includes/header.php';
                   <td class="text-end"><?= (int) $r['jumlah_hadir'] ?></td>
                   <td class="text-end"><?= (int) $r['jumlah_telat'] ?></td>
                   <td class="text-end"><?= (int) $r['jumlah_alpha'] ?></td>
-                  <td class="text-end"><?= (int) $r['jumlah_lembur'] ?></td>
+                  <td class="text-end"><?= e(format_jam_lembur($r['total_jam_lembur'])) ?></td>
                 </tr>
               <?php endforeach; ?>
             </tbody>

@@ -15,14 +15,21 @@ $step = $_GET['step'] ?? $_POST['step'] ?? 'upload';
  * lembur. Dipakai bareng oleh halaman preview & proses commit supaya
  * hasilnya selalu konsisten.
  *
- * Shift tidak lagi properti tetap karyawan: untuk tiap baris, sistem
- * mencari shift mana (dari shift yang berlaku di hari itu) yang
- * jangkauannya paling cocok dengan jam masuk hasil tebakan.
+ * Shift bukan properti tetap karyawan. Untuk tiap baris (karyawan +
+ * tanggal), sistem mencari shift yang paling cocok dari jam check-in.
+ * Jam pulang yang melewati jam selesai shift dihitung sebagai lembur,
+ * dengan batas minimal & maksimal dari halaman Aturan Lembur.
+ *
+ * Semua jam shift dibaca dari tabel `shifts` (halaman Shift Kerja),
+ * jadi perubahan jam oleh admin langsung berlaku.
  */
 function ambil_data_preview(PDO $pdo, string $batch_id): array
 {
     // Ambil semua shift sekali saja, dipakai untuk deteksi tiap baris.
     $semua_shift = $pdo->query('SELECT * FROM shifts')->fetchAll();
+
+    // Batas minimal & maksimal lembur yang diatur admin.
+    $atur_lembur = ambil_pengaturan_lembur($pdo);
 
     $stmt = $pdo->prepare(
         "SELECT s.*, e.nama AS nama_karyawan, e.nik, d.nama_departemen
@@ -43,9 +50,8 @@ function ambil_data_preview(PDO $pdo, string $batch_id): array
             ? explode(',', $r['jam_raw'])
             : [];
 
-        // Tidak ada shift tetap lagi, jadi tebakan masuk/pulang murni
-        // dari urutan scan. 1x scan otomatis dianggap "jam masuk" dan
-        // selalu ditandai (lihat tebak_masuk_pulang()).
+        // Tebakan masuk/pulang murni dari urutan scan. 1x scan otomatis
+        // dianggap "jam masuk" dan selalu ditandai.
         [$masuk, $pulang, $ambigu_deteksi] = tebak_masuk_pulang($jam_list, null, null);
 
         $shift_hari_ini = array_values(array_filter(
@@ -64,6 +70,9 @@ function ambil_data_preview(PDO $pdo, string $batch_id): array
             }
         }
 
+        $lembur_aktual = 0.0;
+        $jam_lembur = 0.0;
+
         if ($shift_cocok) {
 
             [$status, $menit_telat] = hitung_status(
@@ -72,13 +81,21 @@ function ambil_data_preview(PDO $pdo, string $batch_id): array
                 (int) $shift_cocok['toleransi_menit']
             );
 
-            $jam_lembur = hitung_lembur($pulang, $shift_cocok['jam_masuk'], $shift_cocok['jam_pulang']);
+            // Lembur = jam pulang melewati jam selesai shift, lalu
+            // dipotong batas minimal & maksimal dari pengaturan.
+            $lembur_aktual = hitung_lembur(
+                $pulang,
+                $shift_cocok['jam_masuk'],
+                $shift_cocok['jam_pulang'],
+                $atur_lembur['min_menit']
+            );
+
+            $jam_lembur = batasi_lembur($lembur_aktual, $atur_lembur['max_jam']);
 
         } else {
 
             $status = $masuk ? 'hadir' : 'alpha';
             $menit_telat = 0;
-            $jam_lembur = 0;
 
             if ($masuk) {
                 // Karyawan check-in tapi tidak ada shift yang cocok
@@ -87,14 +104,10 @@ function ambil_data_preview(PDO $pdo, string $batch_id): array
             }
         }
 
-        // $ambigu_deteksi: khusus kasus sistem RAGU (shift ambigu, tidak
-        // ada shift cocok, atau cuma 1x scan) -> ini yang dapat catatan
-        // "jam ditebak otomatis" karena butuh verifikasi datanya benar.
-        //
-        // $perlu_tinjau: flag umum untuk admin -> selain kasus di atas,
-        // status yang bukan "hadir" (Telat, Alpha) juga otomatis
-        // ditandai, supaya admin bisa langsung lihat siapa saja yang
-        // perlu ditindaklanjuti tanpa perlu menyaring manual.
+        // $ambigu_deteksi: sistem RAGU (shift ambigu, tidak ada shift
+        // cocok, atau cuma 1x scan).
+        // $perlu_tinjau: flag umum untuk admin -> kasus ragu, plus
+        // status selain "hadir" (Telat, Alpha).
         $perlu_tinjau = $ambigu_deteksi || $status !== 'hadir';
 
         $hasil[] = [
@@ -110,6 +123,9 @@ function ambil_data_preview(PDO $pdo, string $batch_id): array
             'status' => $status,
             'menit_telat' => $menit_telat,
             'jam_lembur' => $jam_lembur,
+            'lembur_aktual' => $lembur_aktual,
+            'lembur_dibatasi' => $jam_lembur < $lembur_aktual,
+            'batas_lembur_jam' => $atur_lembur['max_jam'],
             'perlu_tinjau' => $perlu_tinjau,
             'ambigu_deteksi' => $ambigu_deteksi,
         ];
@@ -228,7 +244,6 @@ if ($step === 'apply_mapping' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $pilihan = $_POST['pilihan'] ?? []; // [no => 'baru'|'hubung'|'abaikan']
     $hubung_ke = $_POST['hubung_ke'] ?? []; // [no => employee_id]
-    $shift_baru = $_POST['shift_baru'] ?? []; // [no => shift_id]
     $dept_map = $_SESSION['import_dept_map'] ?? [];
 
     $stmtInfo = $pdo->prepare('SELECT nama_file, dept_file FROM import_staging WHERE batch_id = ? AND device_user_id = ? LIMIT 1');
@@ -248,17 +263,16 @@ if ($step === 'apply_mapping' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             continue;
         }
 
-        // default: buat karyawan baru
+        // default: buat karyawan baru (tanpa shift tetap, shift dideteksi otomatis)
         $stmtInfo->execute([$batch_id, $no]);
         $info = $stmtInfo->fetch();
         if (!$info) {
             continue;
         }
         $dept_id = $dept_map[mb_strtolower(trim($info['dept_file'] ?? ''))] ?? null;
-        $shift_id = !empty($shift_baru[$no]) ? (int) $shift_baru[$no] : null;
 
-        $pdo->prepare('INSERT INTO employees (nik, nama, departemen_id, shift_id, device_user_id, status_aktif) VALUES (?,?,?,?,?,1)')
-            ->execute([$no, $info['nama_file'], $dept_id, $shift_id, $no]);
+        $pdo->prepare('INSERT INTO employees (nik, nama, departemen_id, shift_id, device_user_id, status_aktif) VALUES (?,?,?,NULL,?,1)')
+            ->execute([$no, $info['nama_file'], $dept_id, $no]);
         $employee_id = (int) $pdo->lastInsertId();
         $stmtSetEmp->execute([$employee_id, $batch_id, $no]);
     }
@@ -291,19 +305,31 @@ if ($step === 'commit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $catatan = !empty($row['ambigu_deteksi'])
-            ? 'Jam ditebak / shift dideteksi otomatis dari jam check-in — mohon dicek.'
-            : null;
+        // Catatan otomatis untuk admin.
+        $catatan_list = [];
+
+        if (!empty($row['ambigu_deteksi'])) {
+            $catatan_list[] = 'Jam ditebak / shift dideteksi otomatis dari jam check-in — mohon dicek.';
+        }
+
+        if (!empty($row['lembur_dibatasi'])) {
+            $catatan_list[] = 'Lembur dibatasi maksimal ' . rtrim(rtrim(number_format((float) $row['batas_lembur_jam'], 2), '0'), '.')
+                . ' jam (aktual ' . rtrim(rtrim(number_format((float) $row['lembur_aktual'], 2), '0'), '.') . ' jam).';
+        }
+
+        $catatan = !empty($catatan_list) ? mb_substr(implode(' ', $catatan_list), 0, 255) : null;
 
         try {
             $pdo->prepare(
-                "INSERT INTO attendance_daily (employee_id, tanggal, jam_masuk_aktual, jam_pulang_aktual, status, menit_telat, jam_lembur, perlu_tinjau, sumber, catatan)
-                 VALUES (?,?,?,?,?,?,?,?,'import',?)
+                "INSERT INTO attendance_daily (employee_id, tanggal, jam_masuk_aktual, jam_pulang_aktual, status, menit_telat, jam_lembur, perlu_tinjau, shift_terdeteksi, sumber, catatan)
+                 VALUES (?,?,?,?,?,?,?,?,?,'import',?)
                  ON DUPLICATE KEY UPDATE jam_masuk_aktual=VALUES(jam_masuk_aktual), jam_pulang_aktual=VALUES(jam_pulang_aktual),
-                    status=VALUES(status), menit_telat=VALUES(menit_telat), jam_lembur=VALUES(jam_lembur), perlu_tinjau=VALUES(perlu_tinjau), sumber='import', catatan=VALUES(catatan)"
+                    status=VALUES(status), menit_telat=VALUES(menit_telat), jam_lembur=VALUES(jam_lembur), perlu_tinjau=VALUES(perlu_tinjau),
+                    shift_terdeteksi=VALUES(shift_terdeteksi), sumber='import', catatan=VALUES(catatan)"
             )->execute([
                 $row['employee_id'], $row['tanggal'], $row['jam_masuk'], $row['jam_pulang'],
                 $row['status'], $row['menit_telat'], $row['jam_lembur'], $row['perlu_tinjau'] ? 1 : 0,
+                $row['shift_terdeteksi'],
                 $catatan,
             ]);
         } catch (PDOException $e) {
@@ -312,11 +338,11 @@ if ($step === 'commit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $cek->execute([$row['employee_id'], $row['tanggal']]);
             $ada = $cek->fetch();
             if ($ada) {
-                $pdo->prepare("UPDATE attendance_daily SET jam_masuk_aktual=?, jam_pulang_aktual=?, status=?, menit_telat=?, jam_lembur=?, perlu_tinjau=?, sumber='import', catatan=? WHERE id=?")
-                    ->execute([$row['jam_masuk'], $row['jam_pulang'], $row['status'], $row['menit_telat'], $row['jam_lembur'], $row['perlu_tinjau'] ? 1 : 0, $catatan, $ada['id']]);
+                $pdo->prepare("UPDATE attendance_daily SET jam_masuk_aktual=?, jam_pulang_aktual=?, status=?, menit_telat=?, jam_lembur=?, perlu_tinjau=?, shift_terdeteksi=?, sumber='import', catatan=? WHERE id=?")
+                    ->execute([$row['jam_masuk'], $row['jam_pulang'], $row['status'], $row['menit_telat'], $row['jam_lembur'], $row['perlu_tinjau'] ? 1 : 0, $row['shift_terdeteksi'], $catatan, $ada['id']]);
             } else {
-                $pdo->prepare("INSERT INTO attendance_daily (employee_id, tanggal, jam_masuk_aktual, jam_pulang_aktual, status, menit_telat, jam_lembur, perlu_tinjau, sumber, catatan) VALUES (?,?,?,?,?,?,?,?,'import',?)")
-                    ->execute([$row['employee_id'], $row['tanggal'], $row['jam_masuk'], $row['jam_pulang'], $row['status'], $row['menit_telat'], $row['jam_lembur'], $row['perlu_tinjau'] ? 1 : 0, $catatan]);
+                $pdo->prepare("INSERT INTO attendance_daily (employee_id, tanggal, jam_masuk_aktual, jam_pulang_aktual, status, menit_telat, jam_lembur, perlu_tinjau, shift_terdeteksi, sumber, catatan) VALUES (?,?,?,?,?,?,?,?,?,'import',?)")
+                    ->execute([$row['employee_id'], $row['tanggal'], $row['jam_masuk'], $row['jam_pulang'], $row['status'], $row['menit_telat'], $row['jam_lembur'], $row['perlu_tinjau'] ? 1 : 0, $row['shift_terdeteksi'], $catatan]);
             }
         }
 
@@ -364,7 +390,6 @@ if ($step === 'mapping') {
     $unmapped = $stmt->fetchAll();
 
     $kandidat_karyawan = $pdo->query('SELECT id, nama, nik FROM employees WHERE device_user_id IS NULL ORDER BY nama')->fetchAll();
-    $shift_list = $pdo->query('SELECT * FROM shifts ORDER BY nama_shift')->fetchAll();
 }
 
 if ($step === 'preview') {
@@ -417,7 +442,7 @@ include __DIR__ . '/includes/header.php';
 <header class="page__header">
   <div class="page__headline">
     <h1 class="page__title">Import Absensi dari Excel</h1>
-    <p class="page__description">Unggah file laporan absensi (.xls) hasil export dari mesin fingerprint lewat flashdisk. Shift setiap baris dideteksi otomatis dari jam check-in-nya.</p>
+    <p class="page__description">Unggah file laporan absensi (.xls) hasil export dari mesin fingerprint lewat flashdisk. Shift setiap hari dideteksi otomatis dari jam check-in, dan jam pulang yang melewati jadwal dihitung sebagai lembur.</p>
   </div>
 </header>
 
@@ -453,7 +478,8 @@ include __DIR__ . '/includes/header.php';
           <span class="card__title">Pemetaan Karyawan Baru</span>
         </div>
         <div class="card__body">
-          <p class="text-muted-foreground mb-4">Ditemukan <?= count($unmapped) ?> ID mesin yang belum dikenali sistem. Tentukan untuk masing-masing:</p>
+          <p class="text-muted-foreground mb-2">Ditemukan <?= count($unmapped) ?> ID mesin yang belum dikenali sistem. Tentukan untuk masing-masing:</p>
+          <p class="text-muted-foreground text-sm mb-4">Shift tidak perlu dipilih. Sistem mendeteksinya sendiri setiap hari dari jam scan.</p>
           <form method="post" action="import.php?step=apply_mapping" class="flex flex-col gap-6">
             <?php foreach ($unmapped as $u): $no = e($u['device_user_id']); ?>
               <div class="card card--outline">
@@ -462,14 +488,8 @@ include __DIR__ . '/includes/header.php';
                   <div class="flex flex-col gap-2">
                     <label class="field__item">
                       <input type="radio" class="radio" name="pilihan[<?= $no ?>]" value="baru" checked>
-                      <span class="field__label">Buat karyawan baru, shift:</span>
+                      <span class="field__label">Buat karyawan baru</span>
                     </label>
-                    <select name="shift_baru[<?= $no ?>]" class="select ms-6" style="max-width:20rem" required>
-                      <option value="">— pilih shift —</option>
-                      <?php foreach ($shift_list as $s): ?>
-                        <option value="<?= (int) $s['id'] ?>"><?= e($s['nama_shift']) ?> (<?= jam($s['jam_masuk']) ?>–<?= jam($s['jam_pulang']) ?>)</option>
-                      <?php endforeach; ?>
-                    </select>
                     <label class="field__item">
                       <input type="radio" class="radio" name="pilihan[<?= $no ?>]" value="hubung">
                       <span class="field__label">Hubungkan ke karyawan yang sudah ada:</span>
@@ -581,7 +601,7 @@ include __DIR__ . '/includes/header.php';
                   <td>
                     <?= badge_status($r['status']) ?>
                     <?php if (!empty($r['jam_lembur'])): ?>
-                      <span class="badge badge--soft badge--primary">Lembur <?= rtrim(rtrim(number_format((float) $r['jam_lembur'], 2), '0'), '.') ?> jam</span>
+                      <span class="badge badge--soft badge--primary">Lembur <?= rtrim(rtrim(number_format((float) $r['jam_lembur'], 2), '0'), '.') ?> jam<?= !empty($r['lembur_dibatasi']) ? ' (dibatasi)' : '' ?></span>
                     <?php endif; ?>
                   </td>
                   <td><?= $r['perlu_tinjau'] ? '<span class="badge badge--soft badge--warning">Perlu Ditinjau</span>' : '' ?></td>

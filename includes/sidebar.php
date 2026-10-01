@@ -1,8 +1,27 @@
 <?php $admin = admin_sekarang(); ?>
+<style>
+  .sidebar__brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .sidebar__brand .brand-logo {
+    display: block;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    max-width: 36px !important;
+    padding: 4px;
+    background: #ffffff;
+    border-radius: 10px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+</style>
 <aside class="sidebar sidebar--lg sidebar--app" data-stisla-sidebar>
   <header class="sidebar__header">
     <a class="sidebar__brand" href="index.php">
-      <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.5l3.4 7.1 7.1 3.4-7.1 3.4-3.4 7.1-3.4-7.1L1.5 12l7.1-3.4z" opacity=".45"/><path d="M12 1.5l3.4 7.1L12 12 8.6 8.6z"/></svg>
+      <img src="assets/img/logo_jafran.png" alt="Logo PT Jafran Indonesia" class="brand-logo" />
       <span>Absensi Jafran</span>
     </a>
   </header>
@@ -38,6 +57,11 @@
               <?= ic('solar:clock-circle-bold-duotone') ?><span>Shift Kerja</span>
             </a>
           </li>
+          <li class="sidebar__item">
+            <a class="sidebar__button" href="lembur.php" <?= $nav_active === 'lembur' ? 'aria-current="page"' : '' ?>>
+              <?= ic('solar:settings-bold-duotone') ?><span>Aturan Lembur</span>
+            </a>
+          </li>
         </ul>
       </div>
 
@@ -48,7 +72,8 @@
             <a class="sidebar__button" href="absensi.php" <?= $nav_active === 'absensi' ? 'aria-current="page"' : '' ?>>
               <?= ic('solar:checklist-minimalistic-bold-duotone') ?><span>Log Absensi</span>
             </a>
-            <li class="sidebar__item">
+          </li>
+          <li class="sidebar__item">
             <a class="sidebar__button" href="import.php" <?= $nav_active === 'import' ? 'aria-current="page"' : '' ?>>
               <?= ic('solar:upload-linear') ?><span>Import Absensi</span>
             </a>

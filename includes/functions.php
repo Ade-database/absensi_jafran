@@ -46,8 +46,7 @@ function ambil_flash(): ?array
 /**
  * Format tanggal Y-m-d menjadi format Indonesia.
  *
- * Contoh:
- * Senin, 06 Sep 2026
+ * Contoh: Senin, 06 Sep 2026
  */
 function tgl_indo(?string $tanggal, bool $dengan_hari = true): string
 {
@@ -55,30 +54,11 @@ function tgl_indo(?string $tanggal, bool $dengan_hari = true): string
         return '-';
     }
 
-    $hari_list = [
-        'Minggu',
-        'Senin',
-        'Selasa',
-        'Rabu',
-        'Kamis',
-        "Jum'at",
-        'Sabtu'
-    ];
+    $hari_list = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', "Jum'at", 'Sabtu'];
 
     $bulan_list = [
-        '',
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'Mei',
-        'Jun',
-        'Jul',
-        'Agu',
-        'Sep',
-        'Okt',
-        'Nov',
-        'Des'
+        '', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+        'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
     ];
 
     $ts = strtotime($tanggal);
@@ -93,12 +73,7 @@ function tgl_indo(?string $tanggal, bool $dengan_hari = true): string
         $out .= $hari_list[(int) date('w', $ts)] . ', ';
     }
 
-    $out .=
-        date('d', $ts) .
-        ' ' .
-        $bulan_list[(int) date('n', $ts)] .
-        ' ' .
-        date('Y', $ts);
+    $out .= date('d', $ts) . ' ' . $bulan_list[(int) date('n', $ts)] . ' ' . date('Y', $ts);
 
     return $out;
 }
@@ -129,56 +104,33 @@ function badge_status(?string $status): string
         'izin'   => ['neutral', 'Izin'],
     ];
 
-    [$warna, $label] =
-        $map[$status] ??
-        ['neutral', $status ?: '-'];
+    [$warna, $label] = $map[$status] ?? ['neutral', $status ?: '-'];
 
-    return
-        '<span class="badge badge--soft badge--' .
-        $warna .
-        '">' .
-        e($label) .
-        '</span>';
+    return '<span class="badge badge--soft badge--' . $warna . '">' . e($label) . '</span>';
 }
 
 /**
  * Nama hari dalam angka.
  *
- * 1 = Senin
- * 2 = Selasa
- * ...
- * 7 = Minggu
+ * 1 = Senin ... 7 = Minggu
  */
 function hari_ke(string $tanggal): int
 {
-    return (int) date(
-        'N',
-        strtotime($tanggal)
-    );
+    return (int) date('N', strtotime($tanggal));
 }
 
 /**
  * Cek apakah shift berlaku pada tanggal tertentu.
  *
- * Contoh:
- * "1,2,3,4,5"
+ * Contoh hari_kerja: "1,2,3,4,5"
  */
-function shift_berlaku_hari(
-    string $hari_kerja_csv,
-    string $tanggal
-): bool {
+function shift_berlaku_hari(string $hari_kerja_csv, string $tanggal): bool
+{
     $hari = hari_ke($tanggal);
 
-    $list = array_map(
-        'trim',
-        explode(',', $hari_kerja_csv)
-    );
+    $list = array_map('trim', explode(',', $hari_kerja_csv));
 
-    return in_array(
-        (string) $hari,
-        $list,
-        true
-    );
+    return in_array((string) $hari, $list, true);
 }
 
 /**
@@ -186,28 +138,12 @@ function shift_berlaku_hari(
  * HITUNG STATUS KEHADIRAN
  * ============================================================
  *
- * Aturan:
+ * Contoh: shift masuk 08:00, toleransi 10 menit -> batas 08:10
  *
- * Shift masuk  : 08:00
- * Toleransi    : 10 menit
- *
- * Batas toleransi = 08:10
- *
- * 08:00 -> Hadir
- * 08:01 -> Hadir
- * 08:05 -> Hadir
  * 08:10 -> Hadir
  * 08:11 -> Telat 1 menit
- * 08:12 -> Telat 2 menit
- * 08:13 -> Telat 3 menit
- * 08:20 -> Telat 10 menit
  *
- * Mengembalikan:
- *
- * [
- *     status,
- *     menit_telat
- * ]
+ * Mengembalikan: [status, menit_telat]
  */
 function hitung_status(
     ?string $jam_masuk_aktual,
@@ -215,201 +151,33 @@ function hitung_status(
     int $toleransi_menit
 ): array {
 
-    /*
-     * ----------------------------------------------------------
-     * 1. Tidak ada jam masuk
-     * ----------------------------------------------------------
-     */
-
-    if (
-        $jam_masuk_aktual === null ||
-        trim($jam_masuk_aktual) === ''
-    ) {
-        return [
-            'alpha',
-            0
-        ];
+    if ($jam_masuk_aktual === null || trim($jam_masuk_aktual) === '') {
+        return ['alpha', 0];
     }
 
+    $jam_masuk_aktual = trim($jam_masuk_aktual);
+    $jam_masuk_shift = trim($jam_masuk_shift);
 
-    /*
-     * ----------------------------------------------------------
-     * 2. Bersihkan format jam aktual
-     * ----------------------------------------------------------
-     *
-     * Mendukung:
-     *
-     * 08:13
-     * 08:13:00
-     * "08:13"
-     *
-     */
-
-    $jam_masuk_aktual = trim(
-        $jam_masuk_aktual
-    );
-
-
-    /*
-     * ----------------------------------------------------------
-     * 3. Bersihkan format jam shift
-     * ----------------------------------------------------------
-     */
-
-    $jam_masuk_shift = trim(
-        $jam_masuk_shift
-    );
-
-
-    /*
-     * ----------------------------------------------------------
-     * 4. Ambil HH dan MM dari jam aktual
-     * ----------------------------------------------------------
-     */
-
-    if (
-        !preg_match(
-            '/^(\d{1,2}):(\d{2})/',
-            $jam_masuk_aktual,
-            $match_aktual
-        )
-    ) {
-        /*
-         * Kalau format jam tidak dikenali,
-         * jangan membuat sistem error.
-         */
-        return [
-            'hadir',
-            0
-        ];
+    if (!preg_match('/^(\d{1,2}):(\d{2})/', $jam_masuk_aktual, $match_aktual)) {
+        return ['hadir', 0];
     }
 
-
-    /*
-     * ----------------------------------------------------------
-     * 5. Ambil HH dan MM dari jam shift
-     * ----------------------------------------------------------
-     */
-
-    if (
-        !preg_match(
-            '/^(\d{1,2}):(\d{2})/',
-            $jam_masuk_shift,
-            $match_shift
-        )
-    ) {
-        return [
-            'hadir',
-            0
-        ];
+    if (!preg_match('/^(\d{1,2}):(\d{2})/', $jam_masuk_shift, $match_shift)) {
+        return ['hadir', 0];
     }
 
+    $total_menit_aktual = ((int) $match_aktual[1] * 60) + (int) $match_aktual[2];
+    $total_menit_shift = ((int) $match_shift[1] * 60) + (int) $match_shift[2];
 
-    /*
-     * ----------------------------------------------------------
-     * 6. Konversi jam aktual ke total menit
-     * ----------------------------------------------------------
-     */
+    $toleransi_menit = max(0, $toleransi_menit);
 
-    $jam_aktual = (int) $match_aktual[1];
-    $menit_aktual = (int) $match_aktual[2];
+    $batas_menit = $total_menit_shift + $toleransi_menit;
 
-    $total_menit_aktual =
-        ($jam_aktual * 60) +
-        $menit_aktual;
-
-
-    /*
-     * ----------------------------------------------------------
-     * 7. Konversi jam shift ke total menit
-     * ----------------------------------------------------------
-     */
-
-    $jam_shift = (int) $match_shift[1];
-    $menit_shift = (int) $match_shift[2];
-
-    $total_menit_shift =
-        ($jam_shift * 60) +
-        $menit_shift;
-
-
-    /*
-     * ----------------------------------------------------------
-     * 8. Pastikan toleransi tidak negatif
-     * ----------------------------------------------------------
-     */
-
-    $toleransi_menit = max(
-        0,
-        $toleransi_menit
-    );
-
-
-    /*
-     * ----------------------------------------------------------
-     * 9. Hitung batas keterlambatan
-     * ----------------------------------------------------------
-     *
-     * Contoh:
-     *
-     * Shift     = 08:00
-     * Toleransi = 10
-     *
-     * 08:00 + 10 menit
-     * = 08:10
-     */
-
-    $batas_menit =
-        $total_menit_shift +
-        $toleransi_menit;
-
-
-    /*
-     * ----------------------------------------------------------
-     * 10. Bandingkan jam masuk dengan batas toleransi
-     * ----------------------------------------------------------
-     */
-
-    if (
-        $total_menit_aktual <=
-        $batas_menit
-    ) {
-        /*
-         * Masih dalam batas toleransi.
-         */
-        return [
-            'hadir',
-            0
-        ];
+    if ($total_menit_aktual <= $batas_menit) {
+        return ['hadir', 0];
     }
 
-
-    /*
-     * ----------------------------------------------------------
-     * 11. Karyawan terlambat
-     * ----------------------------------------------------------
-     *
-     * Contoh:
-     *
-     * Shift     = 08:00
-     * Toleransi = 10 menit
-     * Batas     = 08:10
-     *
-     * Masuk     = 08:13
-     *
-     * 08:13 - 08:10
-     * = 3 menit terlambat
-     */
-
-    $menit_telat =
-        $total_menit_aktual -
-        $batas_menit;
-
-
-    return [
-        'telat',
-        $menit_telat
-    ];
+    return ['telat', $total_menit_aktual - $batas_menit];
 }
 
 /**
@@ -440,17 +208,11 @@ function jam_ke_menit(?string $jam): ?int
  * Jangkauan sebuah shift = (jam_masuk - $grace_menit) s.d. jam_pulang,
  * dengan penanganan shift yang melewati tengah malam (overnight).
  *
- * Kalau tidak ada shift yang jangkauannya cocok sama sekali, atau
- * ada 2+ shift yang jaraknya ke jam check-in berdekatan (gray zone),
- * fungsi tetap mengembalikan tebakan terbaik tapi menandai
- * $perlu_tinjau = true supaya admin mengecek manual.
+ * Kalau tidak ada shift yang cocok, atau ada 2+ shift yang jaraknya
+ * berdekatan (gray zone), fungsi tetap mengembalikan tebakan terbaik
+ * tapi menandai perlu_tinjau = true.
  *
- * Mengembalikan:
- *
- * [
- *     shift_terpilih (array|null),
- *     perlu_tinjau (bool)
- * ]
+ * Mengembalikan: [shift_terpilih (array|null), perlu_tinjau (bool)]
  */
 function deteksi_shift(
     string $jam_check_in,
@@ -476,11 +238,9 @@ function deteksi_shift(
         }
 
         $mulai_jangkauan = $masuk - $grace_menit;
-        $overnight = $pulang <= $masuk; // shift melewati tengah malam
+        $overnight = $pulang <= $masuk;
         $akhir_jangkauan = $overnight ? $pulang + 1440 : $pulang;
 
-        // Cek 3 representasi (hari sebelum/ini/sesudah) supaya jangkauan
-        // yang mepet jam 00:00 tetap terdeteksi dengan benar.
         $cocok = false;
 
         foreach ([$menit_check - 1440, $menit_check, $menit_check + 1440] as $t) {
@@ -500,20 +260,9 @@ function deteksi_shift(
             abs($menit_check - $masuk + 1440)
         );
 
-        // ------------------------------------------------------
-        // PENTING: dedup berdasarkan jadwal, bukan berdasarkan
-        // baris shift.
-        // ------------------------------------------------------
-        // Kalau ada 2+ shift dengan jam_masuk, jam_pulang, DAN
-        // toleransi yang PERSIS SAMA (mis. "Shift Kantor" untuk
-        // departemen A dan "Shift Processing Normal" untuk
-        // departemen B, tapi jamnya sama-sama 08:00-16:00),
-        // keduanya dianggap SATU jadwal yang sama — bukan dua
-        // kandidat yang "bersaing" — karena hasil hitung telat &
-        // lembur akan identik siapa pun yang dipilih. Tanpa dedup
-        // ini, dua shift kembar akan SELALU dianggap "ambigu"
-        // (jaraknya sama-sama 0), membuat hampir semua data
-        // ditandai "Perlu Ditinjau" walau sebenarnya jelas.
+        // Dedup berdasarkan jadwal (bukan baris shift): dua shift dengan
+        // jam masuk, jam pulang, dan toleransi yang sama dianggap SATU
+        // jadwal, supaya tidak selalu dianggap "ambigu".
         $signature = $masuk . '|' . $pulang . '|' . (int) $s['toleransi_menit'];
 
         if (
@@ -526,8 +275,8 @@ function deteksi_shift(
 
     $kandidat = array_values($kandidat_by_sig);
 
-    // Tidak ada shift yang jangkauannya cocok -> ambil yang jam_masuk-nya
-    // paling dekat sebagai tebakan, tapi WAJIB ditinjau manual.
+    // Tidak ada shift yang cocok -> ambil yang jam_masuk-nya terdekat
+    // sebagai tebakan, tapi WAJIB ditinjau manual.
     if (empty($kandidat)) {
 
         $terdekat = null;
@@ -560,14 +309,7 @@ function deteksi_shift(
 
     $ambigu = false;
 
-    // Ada 2+ kandidat dan yang terbaik & kedua-terbaik jaraknya mepet
-    // (< 45 menit) -> ini zona abu-abu, tandai untuk ditinjau.
-    //
-    // Catatan: ambang ini sengaja dibuat cukup ketat. Kalau di
-    // database ada beberapa shift dengan jam mulai yang berdekatan
-    // (mis. 07:00 dan 08:00), ambang yang longgar akan membuat
-    // HAMPIR SEMUA check-in ditandai "perlu ditinjau" walau
-    // sebenarnya jelas shift mana yang cocok.
+    // Ada 2+ kandidat dan jaraknya mepet (< 45 menit) -> zona abu-abu.
     if (count($kandidat) > 1 && ($kandidat[1]['jarak'] - $kandidat[0]['jarak']) < 45) {
         $ambigu = true;
     }
@@ -581,31 +323,16 @@ function deteksi_shift(
  * ============================================================
  *
  * Selisih jam pulang aktual vs jam selesai shift. Di bawah
- * $ambang_menit dianggap bukan lembur (cuma telat pulang wajar,
- * misalnya beres-beres sebentar).
+ * $ambang_menit dianggap bukan lembur.
  *
- * PENTING: fungsi ini butuh jam_masuk DAN jam_pulang shift
- * (bukan cuma jam_pulang) supaya bisa menangani shift yang
- * melewati tengah malam (overnight) dengan benar. Tanpa
- * jam_masuk sebagai acuan, sistem tidak bisa membedakan
- * "pulang jam 07:00 karena lembur semalaman" vs
- * "pulang jam 07:00 karena pulang cepat di sore/malam hari".
+ * Butuh jam_masuk DAN jam_pulang shift supaya shift yang melewati
+ * tengah malam (overnight) ditangani dengan benar.
  *
- * Mengembalikan JAM dalam bentuk desimal, dibulatkan 2 angka
- * di belakang koma (kolom attendance_daily.jam_lembur bertipe
- * DECIMAL(4,2), bukan menit integer).
+ * Mengembalikan JAM dalam bentuk desimal (2 angka di belakang koma).
  *
- * Contoh (shift normal):
- * Shift 08:00-16:00, pulang aktual 20:30
- * Selisih = 270 menit -> 4.5 jam lembur
- *
- * Contoh (shift overnight, pulang LEBIH CEPAT dari jadwal):
- * Shift 20:00-06:00, pulang aktual 23:37 (masih malam yang sama)
- * -> BUKAN lembur, karyawan pulang cepat ~6 jam lebih awal.
- *
- * Contoh (shift overnight, pulang LEBIH LAMA dari jadwal):
- * Shift 20:00-06:00, pulang aktual 07:30 (sudah lewat tengah malam)
- * Selisih = 90 menit -> 1.5 jam lembur
+ * Contoh: Shift 08:00-16:00, pulang 20:30 -> 4.5 jam
+ * Contoh overnight: Shift 20:00-06:00, pulang 23:37 -> 0 (pulang cepat)
+ * Contoh overnight: Shift 20:00-06:00, pulang 07:30 -> 1.5 jam
  */
 function hitung_lembur(
     ?string $jam_pulang_aktual,
@@ -622,22 +349,10 @@ function hitung_lembur(
         return 0.0;
     }
 
-    // Shift overnight kalau jam pulang (dalam angka) <= jam masuk,
-    // artinya jam pulang itu sebenarnya "hari berikutnya".
     $overnight = $pulang_shift <= $masuk_shift;
 
-    // Posisikan jam selesai shift pada garis waktu absolut: kalau
-    // overnight, jam selesainya dianggap ada di "hari berikutnya".
     $pulang_shift_abs = $overnight ? $pulang_shift + 1440 : $pulang_shift;
 
-    // Posisikan jam pulang aktual pada garis waktu yang sama.
-    //
-    // Untuk shift overnight: kalau jam pulang aktual masih LEBIH
-    // KECIL dari jam masuk shift, itu tandanya sudah lewat tengah
-    // malam (berarti "hari berikutnya"). Kalau jam pulang aktual
-    // masih LEBIH BESAR dari jam masuk shift, berarti masih di
-    // malam yang sama (belum lewat tengah malam) — ini kasus
-    // pulang cepat, bukan lembur.
     if ($overnight && $aktual < $masuk_shift) {
         $aktual_abs = $aktual + 1440;
     } else {
@@ -654,24 +369,68 @@ function hitung_lembur(
 }
 
 /**
+ * ============================================================
+ * PENGATURAN LEMBUR (dari tabel settings)
+ * ============================================================
+ *
+ * - min_menit : lembur di bawah angka ini tidak dihitung
+ * - max_jam   : batas maksimal lembur per hari (0 = tanpa batas)
+ *
+ * Kalau tabel settings belum ada / kosong, dipakai nilai default
+ * supaya import tetap jalan.
+ *
+ * Mengembalikan: ['min_menit' => int, 'max_jam' => float]
+ */
+function ambil_pengaturan_lembur(PDO $pdo): array
+{
+    $hasil = [
+        'min_menit' => 30,
+        'max_jam' => 0.0,
+    ];
+
+    try {
+        $rows = $pdo->query(
+            "SELECT kunci, nilai FROM settings
+             WHERE kunci IN ('lembur_min_menit', 'lembur_max_jam')"
+        )->fetchAll();
+    } catch (\Throwable $e) {
+        return $hasil;
+    }
+
+    foreach ($rows as $r) {
+        if ($r['kunci'] === 'lembur_min_menit') {
+            $hasil['min_menit'] = max(0, (int) $r['nilai']);
+        }
+
+        if ($r['kunci'] === 'lembur_max_jam') {
+            $hasil['max_jam'] = max(0.0, (float) $r['nilai']);
+        }
+    }
+
+    return $hasil;
+}
+
+/**
+ * Potong jam lembur kalau melebihi batas maksimal.
+ * $maks_jam = 0 artinya tanpa batas.
+ */
+function batasi_lembur(float $jam_lembur, float $maks_jam): float
+{
+    if ($maks_jam > 0 && $jam_lembur > $maks_jam) {
+        return round($maks_jam, 2);
+    }
+
+    return $jam_lembur;
+}
+
+/**
  * Nama bulan Indonesia dari angka 1-12.
  */
 function nama_bulan(int $bulan): string
 {
     $list = [
-        '',
-        'Januari',
-        'Februari',
-        'Maret',
-        'April',
-        'Mei',
-        'Juni',
-        'Juli',
-        'Agustus',
-        'September',
-        'Oktober',
-        'November',
-        'Desember'
+        '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
     ];
 
     return $list[$bulan] ?? '-';
@@ -680,24 +439,11 @@ function nama_bulan(int $bulan): string
 /**
  * Ekstrak semua token jam HH:MM dari teks bebas.
  *
- * Contoh:
- *
- * "08:13 16:10"
- *
- * menjadi:
- *
- * [
- *     "08:13",
- *     "16:10"
- * ]
+ * "08:13 16:10" -> ["08:13", "16:10"]
  */
 function ekstrak_jam(string $teks): array
 {
-    preg_match_all(
-        '/\d{2}:\d{2}/',
-        $teks,
-        $m
-    );
+    preg_match_all('/\d{2}:\d{2}/', $teks, $m);
 
     $jam = $m[0];
 
@@ -711,20 +457,13 @@ function ekstrak_jam(string $teks): array
  * TENTUKAN JAM MASUK & JAM PULANG
  * ============================================================
  *
- * Aturan:
+ * 2 atau lebih scan: scan paling awal = masuk, paling akhir = pulang.
+ * 1 scan: ditandai perlu_tinjau = true.
  *
- * 2 atau lebih scan:
- * - scan paling awal  = jam masuk
- * - scan paling akhir  = jam pulang
+ * Kalau $shift_masuk / $shift_pulang dikirim null (kasus import
+ * sekarang), 1 scan otomatis dianggap "jam masuk".
  *
- * 1 scan:
- * - dibandingkan dengan jam shift (kalau ada)
- * - ditandai perlu_tinjau = true
- *
- * Catatan: sejak shift tidak lagi jadi properti tetap karyawan,
- * $shift_masuk / $shift_pulang biasanya dikirim null dari
- * pemanggil (import.php), sehingga 1 scan otomatis dianggap
- * "jam masuk" dan selalu ditandai perlu ditinjau.
+ * Mengembalikan: [jam_masuk, jam_pulang, perlu_tinjau]
  */
 function tebak_masuk_pulang(
     array $jam_list,
@@ -732,148 +471,42 @@ function tebak_masuk_pulang(
     ?string $shift_pulang
 ): array {
 
-    /*
-     * Normalisasi array.
-     */
-    $jam_list = array_values(
-        $jam_list
-    );
+    $jam_list = array_values($jam_list);
 
-    /*
-     * Urutkan jam.
-     */
     sort($jam_list);
 
-    /*
-     * Jumlah scan.
-     */
     $n = count($jam_list);
 
-
-    /*
-     * ----------------------------------------------------------
-     * Tidak ada scan
-     * ----------------------------------------------------------
-     */
-
     if ($n === 0) {
-        return [
-            null,
-            null,
-            false
-        ];
+        return [null, null, false];
     }
-
-
-    /*
-     * ----------------------------------------------------------
-     * 2 atau lebih scan
-     * ----------------------------------------------------------
-     */
 
     if ($n >= 2) {
-        return [
-            $jam_list[0],
-            $jam_list[$n - 1],
-            false
-        ];
+        return [$jam_list[0], $jam_list[$n - 1], false];
     }
-
-
-    /*
-     * ----------------------------------------------------------
-     * Hanya 1 scan
-     * ----------------------------------------------------------
-     */
 
     $satu = $jam_list[0];
 
-
-    /*
-     * Kalau ada shift tetap yang dikirim (kasus lama / manual),
-     * tentukan apakah scan tersebut lebih dekat
-     * ke jam masuk atau jam pulang.
-     */
-
-    if (
-        $shift_masuk &&
-        $shift_pulang
-    ) {
+    if ($shift_masuk && $shift_pulang) {
 
         $t = strtotime($satu);
 
-        $jarak_masuk =
-            abs(
-                $t -
-                strtotime($shift_masuk)
-            );
+        $jarak_masuk = abs($t - strtotime($shift_masuk));
+        $jarak_pulang = abs($t - strtotime($shift_pulang));
 
-        $jarak_pulang =
-            abs(
-                $t -
-                strtotime($shift_pulang)
-            );
-
-
-        /*
-         * Penanganan shift malam.
-         *
-         * Contoh:
-         *
-         * Masuk 22:00
-         * Pulang 06:00
-         */
-        if (
-            strtotime($shift_pulang) <
-            strtotime($shift_masuk)
-        ) {
-
+        if (strtotime($shift_pulang) < strtotime($shift_masuk)) {
             $jarak_pulang = min(
                 $jarak_pulang,
-                abs(
-                    $t -
-                    (
-                        strtotime($shift_pulang) +
-                        86400
-                    )
-                )
+                abs($t - (strtotime($shift_pulang) + 86400))
             );
         }
 
-
-        /*
-         * Lebih dekat ke jam masuk.
-         */
-        if (
-            $jarak_masuk <=
-            $jarak_pulang
-        ) {
-            return [
-                $satu,
-                null,
-                true
-            ];
+        if ($jarak_masuk <= $jarak_pulang) {
+            return [$satu, null, true];
         }
 
-
-        /*
-         * Lebih dekat ke jam pulang.
-         */
-        return [
-            null,
-            $satu,
-            true
-        ];
+        return [null, $satu, true];
     }
 
-
-    /*
-     * Kalau tidak ada shift tetap dikirim (kasus baru: shift dideteksi
-     * belakangan dari jam masuk), anggap satu scan sebagai jam masuk.
-     */
-    return [
-        $satu,
-        null,
-        true
-    ];
+    return [$satu, null, true];
 }
