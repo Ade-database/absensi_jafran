@@ -518,21 +518,28 @@ include __DIR__ . '/includes/header.php';
           </div>
 
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <button type="submit" form="formHapusBatch" class="button button--sm button--ghost button--danger" id="btnHapusDipilih" disabled onclick="return konfirmasiHapusDipilih();">
+            <button type="button" class="button button--sm button--ghost button--danger" id="btnHapusDipilih" disabled onclick="bukaDialogHapusTerpilih()">
               <?= ic('solar:trash-bin-minimalistic-linear') ?> Hapus yang Dipilih
               <span id="jumlahDipilih">(0)</span>
             </button>
 
-            <form method="post" style="display:inline;" onsubmit="return konfirmasiHapusSemua();">
-              <input type="hidden" name="aksi" value="hapus_semua">
-              <input type="hidden" name="redirect_qs" value="<?= e($qs) ?>">
-              <button type="submit" class="button button--sm button--danger">
-                <?= ic('solar:trash-bin-trash-linear') ?> Hapus Semua
-              </button>
-            </form>
+            <button type="button" class="button button--sm button--danger" onclick="bukaDialogHapusSemua()">
+              <?= ic('solar:trash-bin-trash-linear') ?> Hapus Semua
+            </button>
           </div>
         </div>
 
+        <!--
+          PENTING: form#formHapusBatch HANYA membungkus checkbox pilihan.
+          Tombol hapus per baris TIDAK boleh punya <form> sendiri di dalam
+          sini, karena <form> tidak boleh bersarang di dalam <form> lain.
+          Kalau dipaksakan, browser akan menutup paksa form ini di form
+          bersarang PERTAMA yang ditemui saat parsing HTML, sehingga baris
+          pertama kehilangan konfirmasi hapusnya sementara baris lain
+          (yang kebetulan jadi form baru yang valid) tetap normal.
+          Makanya hapus satuan di bawah pakai tombol biasa + JS + form
+          tersembunyi terpisah (formHapusSatu), bukan form per baris.
+        -->
         <form method="post" id="formHapusBatch">
           <input type="hidden" name="aksi" value="hapus_batch">
           <input type="hidden" name="redirect_qs" value="<?= e($qs) ?>">
@@ -580,14 +587,14 @@ include __DIR__ . '/includes/header.php';
                       <?php endif; ?>
                     </td>
                     <td class="text-end">
-                      <form method="post" style="display:inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus data absensi ini?');">
-                        <input type="hidden" name="aksi" value="hapus">
-                        <input type="hidden" name="id" value="<?= (int) $l['id'] ?>">
-                        <input type="hidden" name="redirect_qs" value="<?= e($qs) ?>">
-                        <button type="submit" class="button button--sm button--ghost button--danger" title="Hapus data">
-                          <?= ic('solar:trash-bin-minimalistic-linear') ?>
-                        </button>
-                      </form>
+                      <button
+                        type="button"
+                        class="button button--sm button--ghost button--danger"
+                        title="Hapus data"
+                        onclick="bukaDialogHapusSatu(<?= (int) $l['id'] ?>)"
+                      >
+                        <?= ic('solar:trash-bin-minimalistic-linear') ?>
+                      </button>
                     </td>
                   </tr>
                 <?php endforeach; ?>
@@ -645,6 +652,192 @@ include __DIR__ . '/includes/header.php';
   </section>
 
 </div>
+
+<!--
+  Form tersembunyi khusus untuk hapus SATU data absensi.
+  Diletakkan di LUAR form#formHapusBatch supaya tidak bersarang.
+  Diisi & disubmit lewat JS (lihat fungsi hapusSatuAbsensi di bawah).
+-->
+<form method="post" id="formHapusSatu" style="display:none;">
+  <input type="hidden" name="aksi" value="hapus">
+  <input type="hidden" name="id" id="hapusSatuId" value="">
+  <input type="hidden" name="redirect_qs" value="<?= e($qs) ?>">
+</form>
+
+<!-- Form tersembunyi untuk hapus semua, disubmit lewat JS setelah dialog dikonfirmasi -->
+<form method="post" id="formHapusSemua" style="display:none;">
+  <input type="hidden" name="aksi" value="hapus_semua">
+  <input type="hidden" name="redirect_qs" value="<?= e($qs) ?>">
+</form>
+
+
+<!-- DIALOG KONFIRMASI: HAPUS SATU DATA -->
+
+<div
+    class="dialog dialog--sm"
+    id="dialogHapusSatu"
+    data-stisla-dialog
+    data-state="closed"
+    role="alertdialog"
+    aria-modal="true"
+    tabindex="-1"
+>
+
+    <div class="dialog__backdrop" onclick="tutupDialogHapus('dialogHapusSatu')"></div>
+
+    <div class="dialog__panel">
+
+        <div class="dialog__content">
+
+            <button
+                type="button"
+                class="dialog__close"
+                onclick="tutupDialogHapus('dialogHapusSatu')"
+                aria-label="Tutup"
+            >
+                <?= ic('solar:close-circle-linear') ?>
+            </button>
+
+            <div class="dialog__header">
+                <h3 class="dialog__title">Hapus Data Absensi?</h3>
+            </div>
+
+            <div class="dialog__body">
+                <p class="text-muted-foreground">
+                    Yakin ingin menghapus data absensi ini?
+                    <br><br>
+                    Tindakan ini tidak dapat dibatalkan.
+                </p>
+            </div>
+
+            <div class="dialog__footer">
+                <button type="button" class="button button--ghost button--neutral" onclick="tutupDialogHapus('dialogHapusSatu')">
+                    Batal
+                </button>
+                <button type="button" class="button button--danger" onclick="submitHapusSatu()">
+                    Hapus
+                </button>
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- DIALOG KONFIRMASI: HAPUS YANG DIPILIH -->
+
+<div
+    class="dialog dialog--sm"
+    id="dialogHapusTerpilih"
+    data-stisla-dialog
+    data-state="closed"
+    role="alertdialog"
+    aria-modal="true"
+    tabindex="-1"
+>
+
+    <div class="dialog__backdrop" onclick="tutupDialogHapus('dialogHapusTerpilih')"></div>
+
+    <div class="dialog__panel">
+
+        <div class="dialog__content">
+
+            <button
+                type="button"
+                class="dialog__close"
+                onclick="tutupDialogHapus('dialogHapusTerpilih')"
+                aria-label="Tutup"
+            >
+                <?= ic('solar:close-circle-linear') ?>
+            </button>
+
+            <div class="dialog__header">
+                <h3 class="dialog__title">Hapus Data Terpilih?</h3>
+            </div>
+
+            <div class="dialog__body">
+                <p class="text-muted-foreground">
+                    Anda akan menghapus
+                    <strong id="jumlahHapusTerpilihDialog">0</strong>
+                    data absensi yang dipilih.
+                    <br><br>
+                    Data yang sudah dihapus tidak dapat dikembalikan.
+                </p>
+            </div>
+
+            <div class="dialog__footer">
+                <button type="button" class="button button--ghost button--neutral" onclick="tutupDialogHapus('dialogHapusTerpilih')">
+                    Batal
+                </button>
+                <button type="button" class="button button--danger" onclick="submitHapusTerpilih()">
+                    Hapus
+                </button>
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- DIALOG KONFIRMASI: HAPUS SEMUA -->
+
+<div
+    class="dialog dialog--sm"
+    id="dialogHapusSemua"
+    data-stisla-dialog
+    data-state="closed"
+    role="alertdialog"
+    aria-modal="true"
+    tabindex="-1"
+>
+
+    <div class="dialog__backdrop" onclick="tutupDialogHapus('dialogHapusSemua')"></div>
+
+    <div class="dialog__panel">
+
+        <div class="dialog__content">
+
+            <button
+                type="button"
+                class="dialog__close"
+                onclick="tutupDialogHapus('dialogHapusSemua')"
+                aria-label="Tutup"
+            >
+                <?= ic('solar:close-circle-linear') ?>
+            </button>
+
+            <div class="dialog__header">
+                <h3 class="dialog__title">Hapus Semua Data Absensi?</h3>
+            </div>
+
+            <div class="dialog__body">
+                <p class="text-muted-foreground">
+                    <strong>⚠️ Peringatan:</strong> seluruh data pada tabel absensi
+                    akan dihapus, bukan hanya yang tampil di halaman ini.
+                    <br><br>
+                    Tindakan ini tidak dapat dibatalkan.
+                </p>
+            </div>
+
+            <div class="dialog__footer">
+                <button type="button" class="button button--ghost button--neutral" onclick="tutupDialogHapus('dialogHapusSemua')">
+                    Batal
+                </button>
+                <button type="button" class="button button--danger" onclick="submitHapusSemua()">
+                    Hapus Semua
+                </button>
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
 
 <div class="dialog" id="tambahAbsensi" data-stisla-dialog data-state="closed" role="dialog" aria-modal="true" tabindex="-1">
   <div class="dialog__backdrop" data-stisla-dialog-dismiss></div>
@@ -766,29 +959,65 @@ document.addEventListener('DOMContentLoaded', function () {
 
 });
 
-function konfirmasiHapusDipilih() {
+/*
+ * Dialog konfirmasi hapus custom (menggantikan confirm() bawaan browser
+ * yang muncul di pojok/atas dan tampilannya beda-beda tiap browser).
+ * Semua dialog ini pakai class .dialog yang sama dengan dialog lain di
+ * halaman ini, jadi otomatis muncul di tengah layar dengan gaya yang sama.
+ */
+
+let idHapusSatuAktif = null;
+
+function bukaDialogHapusSatu(id) {
+    idHapusSatuAktif = id;
+    document.getElementById('dialogHapusSatu').setAttribute('data-state', 'open');
+}
+
+function submitHapusSatu() {
+    if (!idHapusSatuAktif) {
+        return;
+    }
+    document.getElementById('hapusSatuId').value = idHapusSatuAktif;
+    document.getElementById('formHapusSatu').submit();
+}
+
+function bukaDialogHapusTerpilih() {
 
     const jumlah = document.querySelectorAll('.checkbox-data:checked').length;
 
     if (jumlah === 0) {
         alert('Silakan pilih data absensi terlebih dahulu.');
-        return false;
+        return;
     }
 
-    return confirm(
-        'Apakah Anda yakin ingin menghapus ' + jumlah + ' data absensi yang dipilih?\n\n' +
-        'Data yang sudah dihapus tidak dapat dikembalikan.'
-    );
+    document.getElementById('jumlahHapusTerpilihDialog').textContent = jumlah;
+    document.getElementById('dialogHapusTerpilih').setAttribute('data-state', 'open');
 }
 
-function konfirmasiHapusSemua() {
-    return confirm(
-        '⚠️ PERINGATAN!\n\n' +
-        'Apakah Anda yakin ingin menghapus SEMUA data absensi?\n\n' +
-        'Seluruh data pada tabel attendance_daily akan dihapus.\n\n' +
-        'Data yang sudah dihapus tidak dapat dikembalikan.'
-    );
+function submitHapusTerpilih() {
+    document.getElementById('formHapusBatch').submit();
 }
+
+function bukaDialogHapusSemua() {
+    document.getElementById('dialogHapusSemua').setAttribute('data-state', 'open');
+}
+
+function submitHapusSemua() {
+    document.getElementById('formHapusSemua').submit();
+}
+
+function tutupDialogHapus(id) {
+    document.getElementById(id).setAttribute('data-state', 'closed');
+}
+
+// Tutup dialog yang sedang terbuka kalau tombol Escape ditekan
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        ['dialogHapusSatu', 'dialogHapusTerpilih', 'dialogHapusSemua'].forEach(function (id) {
+            tutupDialogHapus(id);
+        });
+    }
+});
 
 </script>
 

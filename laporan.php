@@ -85,24 +85,90 @@ function format_jam_lembur($jam): string
     return $teks === '' ? '0' : $teks;
 }
 
-if (isset($_GET['export']) && $_GET['export'] === 'csv') {
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="laporan-absensi-' . $tahun . '-' . str_pad($bulan, 2, '0', STR_PAD_LEFT) . '.csv"');
-    $out = fopen('php://output', 'w');
-    fwrite($out, "\xEF\xBB\xBF"); // BOM UTF-8, supaya Excel Windows menampilkan karakter non-ASCII (mis. nama dengan huruf beraksen) dengan benar
-    fputcsv($out, ['ID', 'Nama', 'Departemen', 'Hadir', 'Telat', 'Tidak Hadir', 'Lembur (jam)']);
-    foreach ($rekap as $r) {
-        fputcsv($out, [
-            $r['nik'],
-            $r['nama'],
-            $r['nama_departemen'] ?? '-',
-            $r['jumlah_hadir'],
-            $r['jumlah_telat'],
-            $r['jumlah_alpha'],
-            number_format((float) $r['total_jam_lembur'], 2, '.', ''),
-        ]);
+// ============================================================
+// EXPORT XLSX: Sheet 1 = Rekap, Sheet 2 = Detail per karyawan
+// ============================================================
+if (isset($_GET['export']) && $_GET['export'] === 'xlsx') {
+    require_once __DIR__ . '/vendor/autoload.php';
+
+    // --- Query detail harian (filter sama dengan rekap) ---
+    $sqlDetail = "SELECT e.nik, e.nama, d.nama_departemen, a.tanggal, a.status,
+                         a.jam_masuk_aktual AS jam_masuk, a.jam_pulang_aktual AS jam_keluar,
+                         a.menit_telat, a.jam_lembur, a.catatan
+                  FROM attendance_daily a
+                  JOIN employees e ON e.id = a.employee_id
+                  LEFT JOIN departments d ON d.id = e.departemen_id
+                  WHERE e.status_aktif = 1 AND a.tanggal BETWEEN ? AND ?";
+    $paramsDetail = [$awal, $akhir];
+
+    if ($departemen_id !== '') {
+        $sqlDetail .= ' AND e.departemen_id = ?';
+        $paramsDetail[] = (int) $departemen_id;
     }
-    fclose($out);
+    if ($q !== '') {
+        $sqlDetail .= ' AND e.nama LIKE ?';
+        $paramsDetail[] = "%$q%";
+    }
+    $sqlDetail .= ' ORDER BY e.nama, a.tanggal';
+
+    $stmtD = $pdo->prepare($sqlDetail);
+    $stmtD->execute($paramsDetail);
+    $detail = $stmtD->fetchAll();
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $periode = $tahun . '-' . str_pad($bulan, 2, '0', STR_PAD_LEFT);
+
+    // --- Sheet 1: Rekap ---
+    $s1 = $spreadsheet->getActiveSheet();
+    $s1->setTitle('laporan-absensi-' . $periode);
+    $s1->fromArray(['ID', 'Nama', 'Departemen', 'Hadir', 'Telat', 'Tidak Hadir', 'Lembur (jam)'], null, 'A1');
+    $row = 2;
+    foreach ($rekap as $r) {
+        // ID dipaksa jadi teks supaya tidak berubah format (mis. JI26030059 / angka panjang)
+        $s1->setCellValueExplicit("A$row", (string) $r['nik'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+        $s1->setCellValue("B$row", $r['nama']);
+        $s1->setCellValue("C$row", $r['nama_departemen'] ?? '-');
+        $s1->setCellValue("D$row", (int) $r['jumlah_hadir']);
+        $s1->setCellValue("E$row", (int) $r['jumlah_telat']);
+        $s1->setCellValue("F$row", (int) $r['jumlah_alpha']);
+        $s1->setCellValue("G$row", round((float) $r['total_jam_lembur'], 2));
+        $row++;
+    }
+
+    // --- Sheet 2: Detail per karyawan ---
+    $s2 = $spreadsheet->createSheet();
+    $s2->setTitle('Detail Karyawan');
+    $s2->fromArray(['ID', 'Nama', 'Departemen', 'Tanggal', 'Status', 'Jam Masuk', 'Jam Keluar', 'Telat (menit)', 'Lembur (jam)', 'Catatan'], null, 'A1');
+    $row = 2;
+    foreach ($detail as $d) {
+        $s2->setCellValueExplicit("A$row", (string) $d['nik'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+        $s2->setCellValue("B$row", $d['nama']);
+        $s2->setCellValue("C$row", $d['nama_departemen'] ?? '-');
+        $s2->setCellValue("D$row", $d['tanggal']);
+        $s2->setCellValue("E$row", $d['status']);
+        $s2->setCellValue("F$row", $d['jam_masuk'] ?? '-');
+        $s2->setCellValue("G$row", $d['jam_keluar'] ?? '-');
+        $s2->setCellValue("H$row", $d['menit_telat'] ?? 0);
+        $s2->setCellValue("I$row", $d['jam_lembur'] ?? 0);
+        $s2->setCellValue("J$row", $d['catatan'] ?? '');
+        $row++;
+    }
+
+    // --- Styling header + freeze + lebar kolom otomatis ---
+    foreach ([$s1, $s2] as $s) {
+        $lastCol = $s->getHighestColumn();
+        $s->getStyle("A1:{$lastCol}1")->getFont()->setBold(true);
+        $s->freezePane('A2');
+        foreach (range('A', $lastCol) as $col) {
+            $s->getColumnDimension($col)->setAutoSize(true);
+        }
+    }
+    $spreadsheet->setActiveSheetIndex(0);
+
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment; filename="laporan-absensi-' . $periode . '.xlsx"');
+    header('Cache-Control: max-age=0');
+    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save('php://output');
     exit;
 }
 
@@ -129,8 +195,8 @@ include __DIR__ . '/includes/header.php';
     <a href="absensi.php?<?= e($qs_absensi) ?>" class="button button--ghost button--neutral">
       <?= ic('solar:checklist-minimalistic-linear') ?> Lihat Log Absensi
     </a>
-    <a href="?<?= e($qs) ?>&export=csv" class="button button--neutral">
-      <?= ic('solar:download-linear') ?> Export CSV
+    <a href="?<?= e($qs) ?>&export=xlsx" class="button button--neutral">
+      <?= ic('solar:download-linear') ?> Export Excel
     </a>
   </div>
 </header>
