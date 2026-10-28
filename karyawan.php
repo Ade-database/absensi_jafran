@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($nik === '' || $nama === '') {
 
-            flash('error', 'ID dan Nama wajib diisi.');
+            flash('error', 'NIP dan Nama wajib diisi.');
 
         } else {
 
@@ -79,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'error',
                     str_contains($e->getMessage(), 'nik') ||
                     str_contains(strtolower($e->getMessage()), 'unique')
-                        ? 'ID sudah dipakai karyawan lain.'
+                        ? 'NIP sudah dipakai karyawan lain.'
                         : 'Gagal menyimpan data: ' . $e->getMessage()
                 );
             }
@@ -178,9 +178,10 @@ $params = [];
 
 if ($q !== '') {
 
-    $sql .= ' WHERE e.nama LIKE ? OR e.nik LIKE ?';
+    $sql .= ' WHERE e.nama LIKE ? OR e.nik LIKE ? OR d.nama_departemen LIKE ?';
 
     $params = [
+        "%$q%",
         "%$q%",
         "%$q%"
     ];
@@ -231,7 +232,7 @@ function form_karyawan_fields(
         <div class="col-span-6">
             <div class="field">
 
-                <label class="field__label">ID</label>
+                <label class="field__label">NIP</label>
 
                 <input
                     type="text"
@@ -508,7 +509,7 @@ function form_karyawan_fields(
                         type="search"
                         name="q"
                         class="input"
-                        placeholder="Cari nama / ID…"
+                        placeholder="Cari nama / NIP / departemen…"
                         value="<?= e($q) ?>"
                     >
 
@@ -551,7 +552,7 @@ function form_karyawan_fields(
                                 </th>
 
                                 <th>
-                                    ID
+                                    NIP
                                 </th>
 
                                 <th>

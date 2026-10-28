@@ -291,6 +291,7 @@ $tanggal_sampai = $_GET['sampai'] ?? date('Y-m-d');
 $departemen_id = $_GET['departemen_id'] ?? '';
 $status_filter = $_GET['status'] ?? '';
 $hanya_tinjau = !empty($_GET['hanya_tinjau']);
+$q = trim($_GET['q'] ?? '');
 
 if ($departemen_id !== '' && !ctype_digit((string) $departemen_id)) {
     $departemen_id = '';
@@ -319,6 +320,12 @@ if ($status_filter !== '') {
 
 if ($hanya_tinjau) {
     $where .= ' AND a.perlu_tinjau = 1 ';
+}
+
+// Pencarian nama karyawan
+if ($q !== '') {
+    $where .= ' AND e.nama LIKE ? ';
+    $params[] = "%$q%";
 }
 
 $from_join = '
@@ -376,6 +383,7 @@ $qs = http_build_query([
     'departemen_id' => $departemen_id,
     'status' => $status_filter,
     'hanya_tinjau' => $hanya_tinjau ? 1 : '',
+    'q' => $q,
     'halaman' => $halaman,
 ]);
 
@@ -387,6 +395,7 @@ $qs_filter_saja = http_build_query([
     'departemen_id' => $departemen_id,
     'status' => $status_filter,
     'hanya_tinjau' => $hanya_tinjau ? 1 : '',
+    'q' => $q,
 ]);
 
 // Untuk link ke Laporan dengan periode & departemen yang sama.
@@ -479,6 +488,20 @@ include __DIR__ . '/includes/header.php';
             </div>
           </div>
 
+          <!-- PENCARIAN NAMA KARYAWAN -->
+          <div class="col-span-12 lg:col-span-6">
+            <div class="field">
+              <label class="field__label">Nama Karyawan</label>
+              <input
+                type="search"
+                name="q"
+                class="input"
+                placeholder="Cari nama karyawan…"
+                value="<?= e($q) ?>"
+              >
+            </div>
+          </div>
+
           <div class="col-span-12">
             <label class="field__item mb-3">
               <input type="checkbox" class="checkbox" name="hanya_tinjau" value="1" <?= $hanya_tinjau ? 'checked' : '' ?>>
@@ -503,7 +526,7 @@ include __DIR__ . '/includes/header.php';
         <div class="empty-state empty-state--sm">
           <div class="empty-state__media"><?= ic('solar:checklist-minimalistic-bold-duotone') ?></div>
           <h3 class="empty-state__title">Tidak ada data pada rentang ini</h3>
-          <p class="empty-state__text">Coba ubah filter tanggal, atau tambahkan data absensi manual.</p>
+          <p class="empty-state__text">Coba ubah filter tanggal atau kata kunci pencarian, atau tambahkan data absensi manual.</p>
         </div>
 
       <?php else: ?>
