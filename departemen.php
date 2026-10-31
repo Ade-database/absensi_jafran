@@ -39,6 +39,22 @@ $departemen = $pdo->query(
      FROM departments d ORDER BY d.nama_departemen'
 )->fetchAll();
 
+// Ambil semua karyawan sekali saja, lalu kelompokkan per departemen.
+// Daftar ini otomatis ikut terbarui setiap kali import mengisi
+// employees.departemen_id.
+$karyawan_per_dept = [];
+
+$semua_karyawan = $pdo->query(
+    'SELECT id, nik, nama, jabatan, status_aktif, departemen_id
+     FROM employees
+     WHERE departemen_id IS NOT NULL
+     ORDER BY nama'
+)->fetchAll();
+
+foreach ($semua_karyawan as $k) {
+    $karyawan_per_dept[(int) $k['departemen_id']][] = $k;
+}
+
 $page_title = 'Departemen';
 $nav_active = 'departemen';
 include __DIR__ . '/includes/header.php';
@@ -46,7 +62,7 @@ include __DIR__ . '/includes/header.php';
 <header class="page__header">
   <div class="page__headline">
     <h1 class="page__title">Departemen</h1>
-    <p class="page__description">Kelola daftar departemen/divisi perusahaan.</p>
+    <p class="page__description">Kelola daftar departemen/divisi perusahaan. Klik jumlah karyawan untuk melihat siapa saja di departemen tersebut.</p>
   </div>
   <div class="page__action">
     <button type="button" class="button button--primary" data-stisla-dialog-trigger="tambahDept">
@@ -80,7 +96,17 @@ include __DIR__ . '/includes/header.php';
               <?php foreach ($departemen as $d): ?>
                 <tr>
                   <td class="font-medium"><?= e($d['nama_departemen']) ?></td>
-                  <td><?= (int) $d['jumlah_karyawan'] ?> orang</td>
+                  <td>
+                    <?php if ((int) $d['jumlah_karyawan'] > 0): ?>
+                      <button type="button" class="button button--sm button--ghost button--primary"
+                              data-stisla-dialog-trigger="karyawanDept<?= (int) $d['id'] ?>">
+                        <?= ic('solar:users-group-rounded-bold-duotone') ?>
+                        <?= (int) $d['jumlah_karyawan'] ?> orang
+                      </button>
+                    <?php else: ?>
+                      <span class="text-muted-foreground">0 orang</span>
+                    <?php endif; ?>
+                  </td>
                   <td class="text-end">
                     <button type="button" class="button button--sm button--ghost button--neutral"
                             data-stisla-dialog-trigger="editDept<?= (int) $d['id'] ?>">
@@ -92,6 +118,72 @@ include __DIR__ . '/includes/header.php';
                     </button>
                   </td>
                 </tr>
+
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
+    </div>
+  </section>
+</div>
+
+<!--
+  Dialog per departemen diletakkan DI LUAR <table>. Kalau ditaruh di dalam
+  <tbody>, browser menutup tabel lebih awal begitu menemukan <table> lain
+  di dalam dialog (daftar karyawan), dan tampilan halaman jadi berantakan.
+-->
+<?php foreach ($departemen as $d): ?>
+                <!-- Dialog daftar karyawan di departemen ini -->
+                <?php $daftar = $karyawan_per_dept[(int) $d['id']] ?? []; ?>
+                <div class="dialog" id="karyawanDept<?= (int) $d['id'] ?>" data-stisla-dialog data-state="closed" role="dialog" aria-modal="true" tabindex="-1">
+                  <div class="dialog__backdrop" data-stisla-dialog-dismiss></div>
+                  <div class="dialog__panel">
+                    <div class="dialog__content">
+                      <button type="button" class="dialog__close" data-stisla-dialog-dismiss aria-label="Tutup"><?= ic('solar:close-circle-linear') ?></button>
+                      <div class="dialog__header">
+                        <h3 class="dialog__title">Karyawan <?= e($d['nama_departemen']) ?></h3>
+                        <p class="text-xs text-muted-foreground" style="margin-top:4px;"><?= count($daftar) ?> orang</p>
+                      </div>
+                      <div class="dialog__body" style="max-height:60vh; overflow-y:auto;">
+                        <?php if (empty($daftar)): ?>
+                          <p class="text-muted-foreground">Belum ada karyawan di departemen ini.</p>
+                        <?php else: ?>
+                          <div class="table-responsive">
+                            <table class="table table--align-middle">
+                              <thead class="table__head--alt">
+                                <tr>
+                                  <th>NIP</th>
+                                  <th>Nama</th>
+                                  <th>Jabatan</th>
+                                  <th>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <?php foreach ($daftar as $k): ?>
+                                  <tr>
+                                    <td><?= e($k['nik']) ?></td>
+                                    <td class="font-medium"><?= e($k['nama']) ?></td>
+                                    <td><?= e($k['jabatan'] ?: '-') ?></td>
+                                    <td>
+                                      <?= $k['status_aktif']
+                                          ? '<span class="badge badge--soft badge--success">Aktif</span>'
+                                          : '<span class="badge badge--soft badge--neutral">Nonaktif</span>' ?>
+                                    </td>
+                                  </tr>
+                                <?php endforeach; ?>
+                              </tbody>
+                            </table>
+                          </div>
+                        <?php endif; ?>
+                      </div>
+                      <div class="dialog__footer">
+                        <a href="karyawan.php?q=<?= urlencode($d['nama_departemen']) ?>" class="button button--ghost button--neutral">Buka di halaman Karyawan</a>
+                        <button type="button" class="button button--primary" data-stisla-dialog-dismiss>Tutup</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 <!-- Dialog edit -->
                 <div class="dialog" id="editDept<?= (int) $d['id'] ?>" data-stisla-dialog data-state="closed" role="dialog" aria-modal="true" tabindex="-1">
@@ -139,14 +231,7 @@ include __DIR__ . '/includes/header.php';
                     </div>
                   </div>
                 </div>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
-        </div>
-      <?php endif; ?>
-    </div>
-  </section>
-</div>
+<?php endforeach; ?>
 
 <!-- Dialog tambah -->
 <div class="dialog" id="tambahDept" data-stisla-dialog data-state="closed" role="dialog" aria-modal="true" tabindex="-1">
