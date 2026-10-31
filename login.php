@@ -71,10 +71,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     .auth .auth__logo {
       display: block !important;
-      width: 68px !important;
-      height: 68px !important;
-      min-width: 68px !important;
-      max-width: 68px !important;
+      width: 48px !important;
+      height: 48px !important;
+      min-width: 48px !important;
+      max-width: 48px !important;
       padding: 6px;
       background: #ffffff;
       border-radius: 12px;
